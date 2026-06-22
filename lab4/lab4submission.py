@@ -6,21 +6,23 @@ import folium
 from streamlit_folium import folium_static
 
 
-def get_states(include_imaginary=False):
+MAP_STATE_NAMES = {
+    "Penang": "Pulau Pinang",
+}
+
+
+def get_states():
     states = [
         "Johor", "Kedah", "Kelantan", "Melaka", "Negeri Sembilan",
         "Pahang", "Penang", "Perak", "Perlis", "Sabah", "Sarawak",
         "Selangor", "Terengganu", "Kuala Lumpur", "Labuan", "Putrajaya"
     ]
 
-    if include_imaginary:
-        states.append("Aurelion")
-
     return states
 
 
-def generate_population_data(include_imaginary=False):
-    states = get_states(include_imaginary)
+def generate_population_data():
+    states = get_states()
 
     # Changed range: 1 million to 10 million
     population = np.random.randint(1000000, 10000000, size=len(states))
@@ -33,8 +35,8 @@ def generate_population_data(include_imaginary=False):
     return data
 
 
-def generate_gdp_data(include_imaginary=False):
-    states = get_states(include_imaginary)
+def generate_gdp_data():
+    states = get_states()
 
     # Random GDP values
     gdp = np.random.randint(10000, 100000, size=len(states))
@@ -56,16 +58,53 @@ def load_map():
 def plot_map(malaysia_map, data, value_column, color_scheme):
     m = folium.Map(location=[4.2105, 101.9758], zoom_start=6)
 
+    map_data = data.copy()
+    map_data["MapState"] = map_data["State"].replace(MAP_STATE_NAMES)
+
     folium.Choropleth(
         geo_data=malaysia_map,
         name=f"{value_column} Distribution",
-        data=data,
-        columns=["State", value_column],
+        data=map_data,
+        columns=["MapState", value_column],
         key_on="feature.properties.name",
         fill_color=color_scheme,
         fill_opacity=0.7,
         line_opacity=0.2,
         legend_name=f"{value_column} Distribution",
+    ).add_to(m)
+
+    tooltip_map = malaysia_map.merge(
+        map_data[["MapState", value_column]],
+        left_on="name",
+        right_on="MapState",
+        how="left",
+    )
+    tooltip_map[f"{value_column}Tooltip"] = tooltip_map[value_column].apply(
+        lambda value: f"{value:,.0f}" if pd.notna(value) else "No data"
+    )
+
+    folium.GeoJson(
+        tooltip_map,
+        name="State Details",
+        style_function=lambda feature: {
+            "fillColor": "transparent",
+            "color": "black",
+            "weight": 1,
+            "fillOpacity": 0,
+            "opacity": 0.4,
+        },
+        highlight_function=lambda feature: {
+            "fillColor": "white",
+            "fillOpacity": 0.2,
+            "color": "black",
+            "weight": 2,
+        },
+        tooltip=folium.GeoJsonTooltip(
+            fields=["name", f"{value_column}Tooltip"],
+            aliases=["State:", f"{value_column}:"],
+            localize=True,
+            sticky=False,
+        ),
     ).add_to(m)
 
     folium.LayerControl().add_to(m)
@@ -86,19 +125,31 @@ def main():
         ["YlOrRd", "BuGn", "Blues", "Greens"]
     )
 
-    include_imaginary = st.sidebar.checkbox("Add imaginary state")
-
     if dataset_choice == "Population":
-        data = generate_population_data(include_imaginary)
+        data = generate_population_data()
         value_column = "Population"
     else:
-        data = generate_gdp_data(include_imaginary)
+        data = generate_gdp_data()
         value_column = "GDP"
+
+    state_options = data["State"].tolist()
+    selected_states = st.sidebar.multiselect(
+        "Filter by State",
+        state_options,
+        default=state_options,
+    )
+    data = data[data["State"].isin(selected_states)]
+
+    if data.empty:
+        st.warning("Select at least one state to display the map.")
+        return
 
     st.write(f"Sample {dataset_choice} Data:")
     st.dataframe(data)
 
     malaysia_map = load_map()
+    selected_map_states = data["State"].replace(MAP_STATE_NAMES)
+    malaysia_map = malaysia_map[malaysia_map["name"].isin(selected_map_states)].copy()
     folium_map = plot_map(malaysia_map, data, value_column, color_scheme)
 
     folium_static(folium_map)
