@@ -24,12 +24,12 @@ def get_states():
 def generate_population_data():
     states = get_states()
 
-    # Changed range: 1 million to 10 million
-    population = np.random.randint(100000, 1000000, size=len(states))
+    population_samples = np.random.randint(100000, 1000000, size=(len(states), 5))
 
     data = pd.DataFrame({
         "State": states,
-        "Population": population
+        "Population": population_samples.sum(axis=1),
+        "Average Population": population_samples.mean(axis=1)
     })
 
     return data
@@ -55,9 +55,10 @@ def load_map():
     return malaysia_map
 
 
-def plot_map(malaysia_map, data, value_column, color_scheme):
+def plot_map(malaysia_map, data, value_column, color_scheme, tooltip_columns=None):
     m = folium.Map(location=[4.2105, 101.9758], zoom_start=6)
 
+    tooltip_columns = tooltip_columns or [value_column]
     map_data = data.copy()
     map_data["MapState"] = map_data["State"].replace(MAP_STATE_NAMES)
 
@@ -74,14 +75,20 @@ def plot_map(malaysia_map, data, value_column, color_scheme):
     ).add_to(m)
 
     tooltip_map = malaysia_map.merge(
-        map_data[["MapState", value_column]],
+        map_data[["MapState"] + tooltip_columns],
         left_on="name",
         right_on="MapState",
         how="left",
     )
-    tooltip_map[f"{value_column}Tooltip"] = tooltip_map[value_column].apply(
-        lambda value: f"{value:,.0f}" if pd.notna(value) else "No data"
-    )
+    tooltip_fields = ["name"]
+    tooltip_aliases = ["State:"]
+    for column in tooltip_columns:
+        tooltip_column = f"{column} Tooltip"
+        tooltip_map[tooltip_column] = tooltip_map[column].apply(
+            lambda value: f"{value:,.0f}" if pd.notna(value) else "No data"
+        )
+        tooltip_fields.append(tooltip_column)
+        tooltip_aliases.append(f"{column}:")
 
     folium.GeoJson(
         tooltip_map,
@@ -100,8 +107,8 @@ def plot_map(malaysia_map, data, value_column, color_scheme):
             "weight": 2,
         },
         tooltip=folium.GeoJsonTooltip(
-            fields=["name", f"{value_column}Tooltip"],
-            aliases=["State:", f"{value_column}:"],
+            fields=tooltip_fields,
+            aliases=tooltip_aliases,
             localize=True,
             sticky=False,
         ),
@@ -128,9 +135,11 @@ def main():
     if dataset_choice == "Population":
         data = generate_population_data()
         value_column = "Population"
+        tooltip_columns = ["Population", "Average Population"]
     else:
         data = generate_gdp_data()
         value_column = "GDP"
+        tooltip_columns = ["GDP"]
 
     state_options = data["State"].tolist()
     selected_states = st.sidebar.multiselect(
@@ -150,7 +159,7 @@ def main():
     malaysia_map = load_map()
     selected_map_states = data["State"].replace(MAP_STATE_NAMES)
     malaysia_map = malaysia_map[malaysia_map["name"].isin(selected_map_states)].copy()
-    folium_map = plot_map(malaysia_map, data, value_column, color_scheme)
+    folium_map = plot_map(malaysia_map, data, value_column, color_scheme, tooltip_columns)
 
     folium_static(folium_map)
 
