@@ -25,7 +25,7 @@ def generate_population_data():
     states = get_states()
 
     # Changed range: 1 million to 10 million
-    population = np.random.randint(1000000, 10000000, size=len(states))
+    population = np.random.randint(100000, 1000000, size=len(states))
 
     data = pd.DataFrame({
         "State": states,
